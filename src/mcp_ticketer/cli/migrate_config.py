@@ -1,7 +1,5 @@
 """Configuration migration utilities."""
 
-from __future__ import annotations
-
 import json
 import shutil
 from datetime import datetime

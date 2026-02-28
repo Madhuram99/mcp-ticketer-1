@@ -1,7 +1,5 @@
 """Tests for ticket similarity detection and hybrid pipeline."""
 
-from __future__ import annotations
-
 from datetime import datetime
 
 import numpy as np
@@ -97,6 +95,13 @@ class TestTicketSimilarityAnalyzer:
         assert analyzer.title_weight == 0.6
         assert analyzer.description_weight == 0.4
 
+    def test_invalid_weights_rejected(self) -> None:
+        """Test that invalid weight combinations raise ValueError."""
+        with pytest.raises(ValueError, match="must equal 1.0"):
+            TicketSimilarityAnalyzer(keyword_weight=0.8, semantic_weight=0.8)
+        with pytest.raises(ValueError, match="non-negative"):
+            TicketSimilarityAnalyzer(keyword_weight=-0.3, semantic_weight=1.3)
+
     def test_pipeline_auto_mode(self) -> None:
         """Test that auto mode selects hybrid when BM25 available."""
         analyzer = TicketSimilarityAnalyzer(pipeline="auto")
@@ -133,9 +138,9 @@ class TestTicketSimilarityAnalyzer:
         analyzer = TicketSimilarityAnalyzer(pipeline="classic")
         info = analyzer.pipeline_info
         assert info["pipeline"] == "classic"
-        assert "bm25_available" in info
-        assert "semantic_available" in info
-        assert "hybrid_available" in info
+        assert isinstance(info["bm25_available"], bool)
+        assert isinstance(info["semantic_available"], bool)
+        assert isinstance(info["hybrid_available"], bool)
 
     def test_pipeline_info_hybrid(self) -> None:
         """Test pipeline_info for hybrid mode includes stage details."""
@@ -151,68 +156,54 @@ class TestTicketSimilarityAnalyzer:
             assert info["keyword_weight"] == 0.4
             assert info["semantic_weight"] == 0.6
 
-    def test_find_similar_tickets_all_pairs(self, sample_tickets) -> None:
-        """Test finding all similar ticket pairs."""
-        # Use lower threshold to ensure we find some pairs
+    def test_find_similar_tickets_result_structure(self, sample_tickets) -> None:
+        """Test that results have correct structure and respect threshold."""
         analyzer = TicketSimilarityAnalyzer(threshold=0.2, pipeline="classic")
         results = analyzer.find_similar_tickets(sample_tickets)
 
-        # With 5 diverse tickets and threshold 0.2, we should find at least some pairs
-        # The auth tickets (1,2) and UI tickets (3,4) should match
-        assert len(results) >= 0  # May be 0 if tickets are too diverse
-
-        # If results exist, check result structure
+        # Every result must have valid fields and score above threshold
         for result in results:
-            assert hasattr(result, "ticket1_id")
-            assert hasattr(result, "ticket2_id")
-            assert hasattr(result, "similarity_score")
-            assert hasattr(result, "suggested_action")
+            assert result.ticket1_id.startswith("TICKET-")
+            assert result.ticket2_id.startswith("TICKET-")
             assert result.similarity_score >= 0.2
-
-        # Check that the method runs without error
-        assert isinstance(results, list)
+            assert result.suggested_action in ("merge", "link", "ignore")
+            assert 0.0 <= result.confidence <= 1.0
 
     def test_find_similar_tickets_target(self, sample_tickets) -> None:
         """Test finding tickets similar to a specific target."""
-        analyzer = TicketSimilarityAnalyzer(
-            threshold=0.3, pipeline="classic"
-        )  # Lower threshold
+        analyzer = TicketSimilarityAnalyzer(threshold=0.3, pipeline="classic")
         target = sample_tickets[0]  # TICKET-1
         results = analyzer.find_similar_tickets(sample_tickets, target)
 
-        # Should find at least TICKET-2 as similar (both about authentication)
-        # But with TF-IDF, similarity depends on corpus size
-        assert len(results) >= 0  # May be 0 with small corpus
-
-        # All results should involve the target ticket
+        # All results must reference the target ticket
         for result in results:
-            assert result.ticket1_id == target.id or result.ticket2_id == target.id
+            assert result.ticket1_id == target.id
 
-    def test_high_similarity_detection(self, sample_tickets) -> None:
-        """Test detection of highly similar tickets."""
-        analyzer = TicketSimilarityAnalyzer(threshold=0.2, pipeline="classic")
-
-        # TICKET-1 and TICKET-2 are very similar (both auth login bugs)
-        target = sample_tickets[0]
-        results = analyzer.find_similar_tickets(sample_tickets, target)
-
-        # Find the result for TICKET-2
-        ticket2_result = next(
-            (
-                r
-                for r in results
-                if r.ticket2_id == "TICKET-2" or r.ticket1_id == "TICKET-2"
+    def test_identical_tickets_detected(self) -> None:
+        """Test that identical tickets are always detected as similar."""
+        tickets = [
+            Task(
+                id="TICKET-1",
+                title="Fix authentication bug",
+                description="Auth bug details",
+                priority=Priority.HIGH,
+                state=TicketState.OPEN,
             ),
-            None,
-        )
+            Task(
+                id="TICKET-2",
+                title="Fix authentication bug",
+                description="Auth bug details",
+                priority=Priority.LOW,
+                state=TicketState.OPEN,
+            ),
+        ]
+        analyzer = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
+        results = analyzer.find_similar_tickets(tickets)
 
-        # With small corpus, TF-IDF may not detect similarity
-        # Just verify the method works correctly
-        if ticket2_result is not None:
-            # Should have reasonable similarity
-            assert ticket2_result.similarity_score > 0.2
-            # Should suggest appropriate action
-            assert ticket2_result.suggested_action in ["merge", "link", "ignore"]
+        assert len(results) == 1
+        assert results[0].similarity_score > 0.8
+        assert results[0].ticket1_id == "TICKET-1"
+        assert results[0].ticket2_id == "TICKET-2"
 
     def test_suggested_actions(self, sample_tickets) -> None:
         """Test that suggested actions are appropriate for similarity scores."""
@@ -227,39 +218,15 @@ class TestTicketSimilarityAnalyzer:
             else:
                 assert result.suggested_action == "ignore"
 
-    def test_similarity_reasons(self, sample_tickets) -> None:
-        """Test that similarity reasons are populated."""
-        analyzer = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
+    def test_similarity_reasons_populated(self, sample_tickets) -> None:
+        """Test that similarity reasons contain meaningful entries."""
+        analyzer = TicketSimilarityAnalyzer(threshold=0.3, pipeline="classic")
         results = analyzer.find_similar_tickets(sample_tickets)
 
         for result in results:
             assert isinstance(result.similarity_reasons, list)
-            # Should have at least one reason
-            if result.similarity_score > 0.6:
-                assert len(result.similarity_reasons) > 0
-
-    def test_tag_overlap_detection(self, sample_tickets) -> None:
-        """Test that tag overlap is detected as a similarity reason."""
-        analyzer = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
-
-        # TICKET-1 and TICKET-2 share tags
-        target = sample_tickets[0]
-        results = analyzer.find_similar_tickets(sample_tickets, target)
-
-        # Find result for TICKET-2
-        ticket2_result = next(
-            (
-                r
-                for r in results
-                if r.ticket2_id == "TICKET-2" or r.ticket1_id == "TICKET-2"
-            ),
-            None,
-        )
-
-        if ticket2_result:
-            reasons_str = " ".join(ticket2_result.similarity_reasons)
-            # Should detect tag overlap or similar titles
-            assert "tag_overlap" in reasons_str or "similar_titles" in reasons_str
+            # All results between OPEN tickets should note same_state
+            assert "same_state" in result.similarity_reasons
 
     def test_empty_tickets_list(self) -> None:
         """Test handling of empty tickets list."""
@@ -280,7 +247,7 @@ class TestTicketSimilarityAnalyzer:
         assert len(results) <= 2
 
     def test_tickets_with_no_description(self) -> None:
-        """Test handling of tickets without descriptions."""
+        """Test that title-only tickets still produce similarity results."""
         tickets = [
             Task(
                 id="TICKET-1",
@@ -291,7 +258,7 @@ class TestTicketSimilarityAnalyzer:
             ),
             Task(
                 id="TICKET-2",
-                title="Fix login bug",
+                title="Fix bug in login",
                 description=None,
                 priority=Priority.HIGH,
                 state=TicketState.OPEN,
@@ -301,10 +268,9 @@ class TestTicketSimilarityAnalyzer:
         analyzer = TicketSimilarityAnalyzer(threshold=0.3, pipeline="classic")
         results = analyzer.find_similar_tickets(tickets)
 
-        # Should still find similarity based on titles
-        # TF-IDF with small corpus may not always detect
-        assert len(results) >= 0
-        assert isinstance(results, list)
+        # Identical titles should always be detected
+        assert len(results) == 1
+        assert results[0].similarity_score > 0.8
 
     def test_confidence_score(self, sample_tickets) -> None:
         """Test that confidence score matches similarity score."""
@@ -314,72 +280,52 @@ class TestTicketSimilarityAnalyzer:
         for result in results:
             assert result.confidence == result.similarity_score
 
-    def test_same_state_detection(self, sample_tickets) -> None:
-        """Test that same state is detected in reasons."""
-        analyzer = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
-        results = analyzer.find_similar_tickets(sample_tickets)
-
-        # All sample tickets are in OPEN state
-        for result in results:
-            assert "same_state" in result.similarity_reasons
-
-    def test_different_priorities_not_affecting_similarity(self) -> None:
-        """Test that different priorities don't prevent similarity detection."""
-        # Modify tickets to have different priorities but similar content
-        tickets = [
-            Task(
-                id="TICKET-1",
-                title="Fix authentication bug",
-                description="Auth bug details",
-                priority=Priority.HIGH,
-                state=TicketState.OPEN,
-            ),
-            Task(
-                id="TICKET-2",
-                title="Fix authentication bug",
-                description="Auth bug details",
-                priority=Priority.LOW,
-                state=TicketState.OPEN,
-            ),
-        ]
-
-        analyzer = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
-        results = analyzer.find_similar_tickets(tickets)
-
-        # Should still find them similar despite different priorities
-        assert len(results) > 0
-        assert results[0].similarity_score > 0.8
-
     def test_classic_and_hybrid_both_find_identical_tickets(self) -> None:
         """Test that both pipelines find identical tickets as similar."""
         tickets = [
             Task(
                 id="T-1",
-                title="Fix authentication bug",
-                description="Auth bug details here",
+                title="Fix authentication bug in SSO module",
+                description="Auth bug details for the SSO login module",
                 priority=Priority.HIGH,
                 state=TicketState.OPEN,
             ),
             Task(
                 id="T-2",
-                title="Fix authentication bug",
-                description="Auth bug details here",
+                title="Fix authentication bug in SSO module",
+                description="Auth bug details for the SSO login module",
                 priority=Priority.HIGH,
+                state=TicketState.OPEN,
+            ),
+            Task(
+                id="T-3",
+                title="Update API documentation for REST endpoints",
+                description="Comprehensive docs update for all REST API endpoints",
+                priority=Priority.LOW,
                 state=TicketState.OPEN,
             ),
         ]
 
+        # Classic should find T-1 and T-2 as nearly identical
         classic = TicketSimilarityAnalyzer(threshold=0.5, pipeline="classic")
         classic_results = classic.find_similar_tickets(tickets)
-        assert len(classic_results) > 0
-        assert classic_results[0].similarity_score > 0.8
+        t1_t2_classic = [
+            r for r in classic_results
+            if {r.ticket1_id, r.ticket2_id} == {"T-1", "T-2"}
+        ]
+        assert len(t1_t2_classic) == 1
+        assert t1_t2_classic[0].similarity_score > 0.8
 
-        # Hybrid pipeline normalizes scores differently with only 2 tickets,
-        # so use a lower threshold
-        hybrid = TicketSimilarityAnalyzer(threshold=0.2, pipeline="hybrid")
+        # Hybrid should also find T-1 and T-2 as similar (with 3 tickets for
+        # better normalization than 2-ticket edge case)
+        hybrid = TicketSimilarityAnalyzer(threshold=0.3, pipeline="hybrid")
         hybrid_results = hybrid.find_similar_tickets(tickets)
-        assert len(hybrid_results) > 0
-        assert hybrid_results[0].similarity_score > 0.0
+        t1_t2_hybrid = [
+            r for r in hybrid_results
+            if {r.ticket1_id, r.ticket2_id} == {"T-1", "T-2"}
+        ]
+        assert len(t1_t2_hybrid) == 1
+        assert t1_t2_hybrid[0].similarity_score > 0.5
 
 
 class TestHybridSimilarityPipeline:
@@ -399,6 +345,15 @@ class TestHybridSimilarityPipeline:
         )
         assert pipeline.keyword_weight == 0.5
         assert pipeline.semantic_weight == 0.5
+
+    def test_invalid_weights_rejected(self) -> None:
+        """Test that invalid weight combinations raise ValueError."""
+        with pytest.raises(ValueError, match="must equal 1.0"):
+            HybridSimilarityPipeline(keyword_weight=0.8, semantic_weight=0.8)
+        with pytest.raises(ValueError, match="must equal 1.0"):
+            HybridSimilarityPipeline(keyword_weight=0.3, semantic_weight=0.3)
+        with pytest.raises(ValueError, match="non-negative"):
+            HybridSimilarityPipeline(keyword_weight=-0.1, semantic_weight=1.1)
 
     def test_active_stages(self) -> None:
         """Test active_stages property reflects available deps."""
@@ -457,13 +412,14 @@ class TestHybridSimilarityPipeline:
         assert matrix.shape == (1, 1)
 
     def test_tfidf_fallback_stage(self) -> None:
-        """Test that TF-IDF fallback works when sentence-transformers unavailable."""
+        """Test that TF-IDF fallback produces valid similarity matrix."""
         pipeline = HybridSimilarityPipeline()
         texts = ["Fix login bug", "Fix login issue", "Update docs"]
-        # _tfidf_fallback should always work since sklearn is required
         matrix = pipeline._tfidf_fallback(texts)
         assert matrix.shape == (3, 3)
         assert matrix.min() >= 0.0
+        # Similar texts should score higher
+        assert matrix[0, 1] > matrix[0, 2]
 
     @pytest.mark.skipif(not BM25_AVAILABLE, reason="rank_bm25 not installed")
     def test_bm25_stage(self) -> None:
@@ -478,6 +434,8 @@ class TestHybridSimilarityPipeline:
         assert matrix.shape == (3, 3)
         assert matrix.min() >= 0.0
         assert matrix.max() <= 1.0
+        # Auth texts should be more similar than auth vs docs
+        assert matrix[0, 1] > matrix[0, 2]
 
     @pytest.mark.skipif(not BM25_AVAILABLE, reason="rank_bm25 not installed")
     def test_bm25_symmetric(self) -> None:
@@ -492,7 +450,6 @@ class TestHybridSimilarityPipeline:
         pipeline = HybridSimilarityPipeline(
             keyword_weight=0.5, semantic_weight=0.5
         )
-        # Use matrices with varied values so normalization produces non-trivial results
         bm25 = np.array([[1.0, 0.8, 0.2], [0.8, 1.0, 0.3], [0.2, 0.3, 1.0]])
         semantic = np.array([[1.0, 0.6, 0.1], [0.6, 1.0, 0.2], [0.1, 0.2, 1.0]])
         fused = pipeline._fusion_stage(bm25, semantic)
@@ -503,8 +460,8 @@ class TestHybridSimilarityPipeline:
         # Items 0,1 should be more similar than items 0,2
         assert fused[0, 1] > fused[0, 2]
 
-    def test_fusion_with_zero_matrix(self) -> None:
-        """Test fusion when one stage returns all zeros."""
+    def test_fusion_renormalizes_when_bm25_zero(self) -> None:
+        """Test that fusion uses full semantic weight when BM25 returns zeros."""
         pipeline = HybridSimilarityPipeline(
             keyword_weight=0.3, semantic_weight=0.7
         )
@@ -513,9 +470,10 @@ class TestHybridSimilarityPipeline:
             [[1.0, 0.8, 0.2], [0.8, 1.0, 0.3], [0.2, 0.3, 1.0]]
         )
         fused = pipeline._fusion_stage(zeros, semantic)
-        assert fused.shape == (3, 3)
-        assert fused.min() >= 0.0
-        assert fused.max() <= 1.0
+
+        # With renormalization, fused should equal normalized semantic (weight=1.0)
+        semantic_norm = _normalize_matrix(semantic)
+        np.testing.assert_array_almost_equal(fused, semantic_norm)
 
 
 class TestHelperFunctions:
@@ -537,6 +495,8 @@ class TestHelperFunctions:
         normalized = _normalize_matrix(matrix)
         assert normalized.min() == 0.0
         assert normalized.max() == 1.0
+        # 5/10 = 0.5
+        assert normalized[0, 1] == 0.5
 
     def test_normalize_matrix_uniform_positive(self) -> None:
         """Test normalization of uniform positive matrix returns ones."""

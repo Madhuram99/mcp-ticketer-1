@@ -16,8 +16,6 @@ Related Tickets:
 - 1M-316: project_status tool (provides StatusAnalyzer)
 """
 
-from __future__ import annotations
-
 import logging
 from datetime import datetime, timezone
 from typing import Any

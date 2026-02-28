@@ -1,7 +1,5 @@
 """Asana HTTP client for REST API v1.0."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from typing import Any

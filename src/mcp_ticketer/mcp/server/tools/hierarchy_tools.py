@@ -11,8 +11,6 @@ Version 2.0.0 changes:
 - All deprecated function logic has been inlined into the unified interface
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal

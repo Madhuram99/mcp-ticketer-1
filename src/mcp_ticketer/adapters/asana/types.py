@@ -1,7 +1,5 @@
 """Asana-specific types, constants, and state mappings."""
 
-from __future__ import annotations
-
 from enum import Enum
 
 from ...core.models import Priority, TicketState

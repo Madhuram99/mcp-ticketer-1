@@ -45,7 +45,7 @@ try:
     from sentence_transformers import SentenceTransformer
 
     SEMANTIC_AVAILABLE = True
-except Exception:
+except ImportError:
     pass
 
 HYBRID_AVAILABLE = BM25_AVAILABLE
@@ -134,7 +134,17 @@ class HybridSimilarityPipeline:
             semantic_weight: Weight for semantic scores (default: 0.7)
             model_name: Sentence-transformer model for embeddings
 
+        Raises:
+            ValueError: If weights are negative or do not sum to approximately 1.0
+
         """
+        if keyword_weight < 0 or semantic_weight < 0:
+            raise ValueError("Weights must be non-negative")
+        weight_sum = keyword_weight + semantic_weight
+        if abs(weight_sum - 1.0) > 0.01:
+            raise ValueError(
+                f"keyword_weight + semantic_weight must equal 1.0, got {weight_sum}"
+            )
         self.keyword_weight = keyword_weight
         self.semantic_weight = semantic_weight
         self.model_name = model_name
@@ -236,6 +246,8 @@ class HybridSimilarityPipeline:
         """Stage 3: Weighted score fusion.
 
         Combines normalized BM25 and semantic scores using linear weights.
+        When BM25 is unavailable (all-zero matrix), renormalizes so that
+        the semantic weight becomes 1.0 rather than silently dropping signal.
 
         Args:
             bm25_matrix: Normalized BM25 similarity matrix
@@ -245,14 +257,21 @@ class HybridSimilarityPipeline:
             Fused similarity matrix with values in [0, 1]
 
         """
-        # Normalize semantic matrix too (it's usually already in [0,1] for cosine
-        # but normalize for safety)
         semantic_norm = _normalize_matrix(semantic_matrix)
         bm25_norm = _normalize_matrix(bm25_matrix)
 
-        fused = self.keyword_weight * bm25_norm + self.semantic_weight * semantic_norm
+        # Renormalize weights if one stage returned all zeros
+        kw = self.keyword_weight
+        sw = self.semantic_weight
+        bm25_all_zero = not bm25_norm.any()
+        semantic_all_zero = not semantic_norm.any()
 
-        # Clamp to [0, 1]
+        if bm25_all_zero and not semantic_all_zero:
+            kw, sw = 0.0, 1.0
+        elif semantic_all_zero and not bm25_all_zero:
+            kw, sw = 1.0, 0.0
+
+        fused = kw * bm25_norm + sw * semantic_norm
         return np.clip(fused, 0.0, 1.0)
 
     @property
@@ -307,7 +326,17 @@ class TicketSimilarityAnalyzer:
             keyword_weight: BM25 keyword weight for hybrid pipeline (default: 0.3)
             semantic_weight: Semantic weight for hybrid pipeline (default: 0.7)
 
+        Raises:
+            ValueError: If keyword/semantic weights do not sum to approximately 1.0
+
         """
+        if keyword_weight < 0 or semantic_weight < 0:
+            raise ValueError("Weights must be non-negative")
+        weight_sum = keyword_weight + semantic_weight
+        if abs(weight_sum - 1.0) > 0.01:
+            raise ValueError(
+                f"keyword_weight + semantic_weight must equal 1.0, got {weight_sum}"
+            )
         self.threshold = threshold
         self.title_weight = title_weight
         self.description_weight = description_weight
@@ -363,25 +392,21 @@ class TicketSimilarityAnalyzer:
     def _hybrid_similarity(self, tickets: list[Task]) -> np.ndarray:
         """Compute similarity using the hybrid 3-stage pipeline.
 
-        Builds combined text from title + description for each ticket, then
-        runs the hybrid pipeline (BM25 + semantic + fusion).
+        Runs the pipeline separately on titles and descriptions to avoid
+        double-counting the title signal, then combines with configured weights.
 
         """
         assert self._hybrid_pipeline is not None
 
-        # Build combined text: title + description for richer signal
         title_texts = [t.title for t in tickets]
         desc_texts = [t.description or "" for t in tickets]
-        combined_texts = [
-            f"{title} {desc}".strip() for title, desc in zip(title_texts, desc_texts)
-        ]
 
-        # Run hybrid pipeline on title-only for title similarity
+        # Run hybrid pipeline on titles
         title_sim = self._hybrid_pipeline.compute_similarity_matrix(title_texts)
 
-        # Run on descriptions if available
+        # Run on descriptions only (not combined) to avoid double-counting title signal
         if any(desc_texts):
-            desc_sim = self._hybrid_pipeline.compute_similarity_matrix(combined_texts)
+            desc_sim = self._hybrid_pipeline.compute_similarity_matrix(desc_texts)
             return (
                 self.title_weight * title_sim + self.description_weight * desc_sim
             )

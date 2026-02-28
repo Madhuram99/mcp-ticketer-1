@@ -1,7 +1,5 @@
 """Install mcp-ticketer as an MCP server using py-mcp-installer-service."""
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

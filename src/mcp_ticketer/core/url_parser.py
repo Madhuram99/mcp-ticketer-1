@@ -16,8 +16,6 @@ Supported URL patterns:
 - Asana: https://app.asana.com/0/{workspace_gid}/project/{project_gid}
 """
 
-from __future__ import annotations
-
 import logging
 import re
 

@@ -9,8 +9,6 @@ Version 2.0.0 changes:
 - Individual functions retained as internal helpers for code organization
 """
 
-from __future__ import annotations
-
 import logging
 import re
 import warnings

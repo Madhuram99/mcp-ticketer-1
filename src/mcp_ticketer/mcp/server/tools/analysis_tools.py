@@ -20,8 +20,6 @@ These tools help product managers maintain development practices and
 identify tickets that need attention.
 """
 
-from __future__ import annotations
-
 import logging
 import warnings
 from datetime import datetime
@@ -30,20 +28,12 @@ from typing import Any
 # Try to import analysis dependencies (optional)
 try:
     from ....analysis.orphaned import OrphanedTicketDetector
-    from ....analysis.similarity import (
-        BM25_AVAILABLE,
-        HYBRID_AVAILABLE,
-        SEMANTIC_AVAILABLE,
-        TicketSimilarityAnalyzer,
-    )
+    from ....analysis.similarity import TicketSimilarityAnalyzer
     from ....analysis.staleness import StaleTicketDetector
 
     ANALYSIS_AVAILABLE = True
 except ImportError:
     ANALYSIS_AVAILABLE = False
-    BM25_AVAILABLE = False
-    SEMANTIC_AVAILABLE = False
-    HYBRID_AVAILABLE = False
     # Define placeholder classes for type hints
     OrphanedTicketDetector = None  # type: ignore
     TicketSimilarityAnalyzer = None  # type: ignore
@@ -419,14 +409,7 @@ async def ticket_find_similar(
             "threshold": threshold,
             "tickets_analyzed": len(tickets),
             "internal_limit": internal_limit,
-            "pipeline_info": {
-                "pipeline": analyzer.pipeline,
-                "bm25_available": BM25_AVAILABLE,
-                "semantic_available": SEMANTIC_AVAILABLE,
-                "hybrid_available": HYBRID_AVAILABLE,
-                "keyword_weight": keyword_weight,
-                "semantic_weight": semantic_weight,
-            },
+            "pipeline_info": analyzer.pipeline_info,
         }
 
         # Estimate token usage and warn if approaching limit

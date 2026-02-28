@@ -1,8 +1,6 @@
 """Field validation utilities for adapter data."""
 
 
-from __future__ import annotations
-
 class ValidationError(Exception):
     """Raised when field validation fails."""
 

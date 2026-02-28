@@ -1,7 +1,5 @@
 """Adapter registry for dynamic adapter management."""
 
-from __future__ import annotations
-
 from typing import Any
 
 from .adapter import BaseAdapter

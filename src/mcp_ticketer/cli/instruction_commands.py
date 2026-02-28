@@ -5,8 +5,6 @@ allowing users to customize and view the guidelines that help create
 well-structured, consistent tickets.
 """
 
-from __future__ import annotations
-
 import sys
 from pathlib import Path
 

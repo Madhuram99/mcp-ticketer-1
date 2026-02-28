@@ -1,7 +1,5 @@
 """Interactive configuration wizard for MCP Ticketer."""
 
-from __future__ import annotations
-
 import json
 import os
 from collections.abc import Callable

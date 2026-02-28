@@ -1,7 +1,5 @@
 """Linear-specific CLI commands for workspace and team management."""
 
-from __future__ import annotations
-
 import os
 import re
 

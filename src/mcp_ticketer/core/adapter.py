@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
@@ -894,7 +893,7 @@ class BaseAdapter(ABC, Generic[T]):
 
     async def project_get_issues(
         self, project_id: str, state: TicketState | None = None
-    ) -> builtins.list[Task]:
+    ) -> list[Task]:
         """Get all issues in project.
 
         Args:
@@ -982,7 +981,7 @@ class BaseAdapter(ABC, Generic[T]):
         )
 
     @abstractmethod
-    async def search_users(self, query: str) -> builtins.list[dict[str, Any]]:
+    async def search_users(self, query: str) -> list[dict[str, Any]]:
         """Search for users by name or email.
 
         Args:
@@ -1042,7 +1041,7 @@ class BaseAdapter(ABC, Generic[T]):
 
     async def list_relations(
         self, ticket_id: str, relation_type: RelationType | None = None
-    ) -> builtins.list[TicketRelation]:
+    ) -> list[TicketRelation]:
         """List relationships for ticket, optionally filtered by type.
 
         Args:

@@ -1,7 +1,5 @@
 """Base HTTP client with retry, rate limiting, and error handling."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import time

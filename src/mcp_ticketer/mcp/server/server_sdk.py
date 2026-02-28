@@ -9,8 +9,6 @@ The server manages a global adapter instance that is configured at
 startup and used by all tool implementations.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 

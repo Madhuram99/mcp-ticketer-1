@@ -1,7 +1,5 @@
 """Centralized mapping utilities for state and priority conversions."""
 
-from __future__ import annotations
-
 import logging
 from abc import ABC, abstractmethod
 from functools import lru_cache

@@ -4,8 +4,6 @@ IMPORTANT: Auggie CLI ONLY supports global configuration at ~/.augment/settings.
 There is no project-level configuration support.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Any

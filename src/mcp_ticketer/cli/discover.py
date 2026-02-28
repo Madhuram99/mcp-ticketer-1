@@ -1,7 +1,5 @@
 """CLI command for auto-discovering configuration from .env files."""
 
-from __future__ import annotations
-
 from pathlib import Path
 
 import typer
